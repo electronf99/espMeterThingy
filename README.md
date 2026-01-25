@@ -1,5 +1,5 @@
-# PicoMeterThing
-Pi Pico 2 -Drive meters including old soft iron and LCD Display
+# espMeterThing
+esp32-s3 Drive meters including old soft iron and LCD Display
 
 For Linux Side see https://github.com/electronf99/MeterThingy
 
