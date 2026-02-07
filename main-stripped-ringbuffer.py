@@ -159,16 +159,20 @@ def on_rx(data: bytes):
         _commit_message()
         _schedule_process()
 
-
-def ljust_mp(s, width, fill=' '):
-    """Left-justify s to exactly width chars using fill (ASCII).
-       Truncates if s is longer. Works on MicroPython."""
-    s = str(s)            # ensure it's a string
-    n = width - len(s)
-    if n > 0:
-        return s + (fill * n)
-    return s[:width]
-
+# -------------
+# Run the needle down gently
+# -------------
+def run_meter_down():
+    pwm = m1_volt_meter.duty_u16()
+    print(f"pwm={pwm}")
+    while pwm > 32768:
+        pwm -= 1000
+        print(f"running down: {pwm}")
+        m1_volt_meter.duty_u16(pwm)
+        sleep(0.1)
+    
+    
+    m1_volt_meter.duty_u16(int(32768))
 
 # -------------
 # Scheduled message processor (runs in main VM context)
@@ -250,16 +254,20 @@ if __name__ == "__main__":
                 has_connected = True
                 sleep(1)
                 fail_count -= 1
+                if fail_count < -20:
+                    run_meter_down()
 
             else:
                 in_failure += 1
                 fail_count += 1
                 sleep(1)
-
                 print(f"Not Connected Fail Count {fail_count}")
-
+                if fail_count == 10:
+                    run_meter_down()
     except KeyboardInterrupt:
         print("Ctrl-C")
+        run_meter_down()
         sleep(0.1)
     finally:
+        run_meter_down()
         print("Ctrl-C final")
