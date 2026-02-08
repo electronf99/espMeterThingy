@@ -10,6 +10,7 @@ import micropython
 import gc
 from ssd1306 import SSD1306_I2C
 from u8g2_font import Font
+import framebuf
 
 micropython.alloc_emergency_exception_buf(256)  # safer error text in IRQ
 
@@ -23,17 +24,56 @@ use_I2C = False
 use_OLED = True
 
 if use_OLED:
+
+    bt_icon_data_fg = bytearray([
+
+        0b00000000, 0b00000000,
+        0b00001000, 0b00000000,
+        0b00001100, 0b00000000,
+        0b00001010, 0b00000000,
+        0b00101001, 0b00000000,
+        0b00011110, 0b00000000,
+        0b00011010, 0b00000000,
+        0b00101001, 0b00000000,
+        0b00001010, 0b00000000,
+        0b00001100, 0b00000000,
+        0b00001000, 0b00000000,
+        0b00000000, 0b00000000,
+
+    ])
+
+
+    bt_icon_data_bg = bytearray([
+        0b00011110, 0b00000000, #    *    
+        0b00110111, 0b00000000, #    *    
+        0b01110011, 0b10000000, #    **   
+        0b01110101, 0b10000000, #    * *   
+        0b01010110, 0b10000000, #  * **  
+        0b01100001, 0b10000000, #   ***   
+        0b01100101, 0b10000000, #   ***   
+        0b01010110, 0b10000000, #  * * *  
+        0b01110101, 0b10000000, #    **   
+        0b01110011, 0b10000000, #    *    
+        0b00110111, 0b00000000, #    *    
+        0b00011110, 0b00000000  #
+    ])
+
+
+    icon_fg = framebuf.FrameBuffer(bt_icon_data_fg, 16, 12, framebuf.MONO_HLSB)
+    icon_bg = framebuf.FrameBuffer(bt_icon_data_bg, 16, 12, framebuf.MONO_HLSB)
+    
     i2c = I2C(0, scl=Pin(15), sda=Pin(16), freq=500_000)
     oled = SSD1306_I2C(128,64, i2c)
     font = Font('6x10_mf.u8f')
 
+    oled.poweroff()
     oled.poweron()
     oled.fill(0)
     oled.show()
     oled.contrast(1)
-    font.text(f"Waiting for BT", 0, 20, 1, oled.hline)  # <- string first, then x,y, then hline
+
     oled.show()
-   
+
 # ------------------------
 # PWM (meters)
 # ------------------------
@@ -218,11 +258,12 @@ def _process_message(_arg):
                     font.text(f"{line}", 0, (10*i)+10, 1, oled.hline)  # <- string first, then x,y, then hline
                 
                 rx_int = int(line.split(' ')[1])
-                lag = rx_int - packet_count
+                lag = abs(rx_int - packet_count)
 
-                font.text(f"Recv: {packet_count}", 0, 40, 1, oled.hline)  # <- string first, then x,y, then hline
-                font.text(f"Lag: {lag}", 0, 50, 1, oled.hline)  # <- string first, then x,y, then hline
-
+                font.text(f"BRX: {packet_count:<7} L{lag}", 0, 40, 1, oled.hline)  # <- string first, then x,y, then hline
+                font.text(f"CPU: {str(message['meta']['cpu'])}", 0, 50, 1, oled.hline ) # type: ignore
+                
+                oled.blit(icon_bg, 118, 52)
                 oled.show()
 
         except Exception as e:
@@ -239,35 +280,56 @@ if __name__ == "__main__":
     in_failure = 0
     has_connected = False
 
+    #oled.poweroff()
+
     try:
         ble = bluetooth.BLE()
         print(">>------------")
         sp = BLESimplePeripheral(ble, "pico2w")
         print("------------<<")
-        heap_free_hwm = gc.mem_free()
+        
+        mac = ble.config('mac')[1]
+        mac_str = (':'.join('%02X' % b for b in mac))
+        font.text(f"{mac_str}", 10, 62, 1, oled.hline)
 
         # Register on_write ONCE (BLESimplePeripheral queues it internally)
         sp.on_write(on_rx)
+        icon = 0
 
         while True:
             if sp.is_connected():
                 has_connected = True
+                oled.blit(icon_bg, 118, 52)
+                oled.show()
+                icon = 0
+
                 sleep(1)
                 fail_count -= 1
-                if fail_count < -20:
+                if fail_count < -10:
                     run_meter_down()
 
             else:
                 in_failure += 1
                 fail_count += 1
                 sleep(1)
+                if icon == 0:
+                    oled.blit(icon_bg, 118, 52)
+                    oled.show()
+                    icon = 1
+                else:
+                    oled.blit(icon_fg, 118, 52)
+                    oled.show()
+                    icon = 0
+
                 print(f"Not Connected Fail Count {fail_count}")
-                if fail_count == 10:
+                if fail_count == 5:
                     run_meter_down()
     except KeyboardInterrupt:
         print("Ctrl-C")
         run_meter_down()
+        oled.poweroff()
         sleep(0.1)
     finally:
         run_meter_down()
+        oled.poweroff()
         print("Ctrl-C final")
